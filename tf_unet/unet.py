@@ -23,6 +23,7 @@ import os
 import shutil
 import numpy as np
 from collections import OrderedDict
+from skimage.segmentation import find_boundaries
 import logging
 
 import tensorflow as tf
@@ -193,7 +194,8 @@ class Unet(object):
 
         self.x = tf.placeholder("float", shape=[None, None, None, channels], name="x")
         self.y = tf.placeholder("float", shape=[None, None, None, n_class], name="y")
-#        self.w = tf.placeholder("float", shape=[None, None, None, n_class], name="w")
+        self.w = tf.placeholder("float", shape=[None, None, None, n_class], name="w")
+
         self.keep_prob = tf.placeholder(tf.float32, name="dropout_probability")  # dropout (keep probability)
 
         logits, self.variables, self.offset = create_conv_net(self.x, self.keep_prob, channels, n_class, **kwargs)
@@ -223,6 +225,14 @@ class Unet(object):
         with tf.name_scope("cost"):
             flat_logits = tf.reshape(logits, [-1, self.n_class])
             flat_labels = tf.reshape(self.y, [-1, self.n_class])
+
+            print("flat labels are of type: ", type(flat_labels))
+
+#            weight_map_borders = find_boundaries(self.y[0,...,0])
+            gt_map = self.y[...,0]
+            print("############## ", type(gt_map), gt_map.get_shape())
+#            weight_map_borders = np.where(weight_map_borders==True, 5, 1)
+
             if cost_name == "cross_entropy":
                 class_weights = cost_kwargs.pop("class_weights", None)
 
@@ -241,24 +251,8 @@ class Unet(object):
                 else:
                     loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=flat_logits,
                                                                                      labels=flat_labels))
-            if cost_name == "weighted_cross_entropy":
-                class_weights = cost_kwargs.pop("class_weights", None)
 
-                if class_weights is not None:
-                    class_weights = tf.placeholder(np.array(class_weights, dtype=np.float32))
 
-                    weight_map = tf.multiply(flat_labels, class_weights)
-                    weight_map = tf.reduce_sum(weight_map, axis=1)
-
-                    loss_map = tf.nn.softmax_cross_entropy_with_logits_v2(logits=flat_logits,
-                                                                          labels=flat_labels)
-                    weighted_loss = tf.multiply(loss_map, weight_map)
-
-                    loss = tf.reduce_mean(weighted_loss)
-                
-                else:
-                    loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=flat_logits,
-                                                                                     labels=flat_labels))
             elif cost_name == "dice_coefficient":
                 eps = 1e-5
                 prediction = pixel_wise_softmax(logits)
