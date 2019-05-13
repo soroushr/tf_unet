@@ -198,3 +198,68 @@ class ImageDataProvider(BaseDataProvider):
         label = self._load_file(label_name, np.bool)
     
         return img,label
+
+
+
+###############################
+class ImageDataProvider2(BaseDataProvider):
+    """
+    make it load the borders too!
+    """
+    
+    def __init__(self, search_path, a_min=None, a_max=None, data_suffix=".png",
+                                                            mask_suffix="_mask.png",
+                                                            border_suffix="_border.png",
+                                                            shuffle_data=True):
+        super(ImageDataProvider2, self).__init__(a_min, a_max)
+        self.data_suffix = data_suffix
+        self.mask_suffix = mask_suffix
+        self.border_suffix = border_suffix
+        self.file_idx = -1
+        self.shuffle_data = shuffle_data
+
+        self.data_files = self._find_data_files(search_path)
+        
+        if self.shuffle_data:
+            np.random.shuffle(self.data_files)
+        
+        assert len(self.data_files) > 0, "No training files"
+        print("Number of files used: %s" % len(self.data_files))
+
+        image_path = self.data_files[0]
+        label_path = image_path.replace(self.data_suffix, self.mask_suffix)
+        border_path = image_path.replace(self.data_suffix, self.border_suffix)
+        img = self._load_file(image_path)
+        mask = self._load_file(label_path)
+        border = self._load_file(border_path)
+        self.channels = 1 if len(img.shape) == 2 else img.shape[-1]
+        self.n_class = 2 if len(mask.shape) == 2 else mask.shape[-1]
+
+        print("Number of channels: %s"%self.channels)
+        print("Number of classes: %s"%self.n_class)
+
+    def _find_data_files(self, search_path):
+        all_files = glob.glob(search_path)
+        return [name for name in all_files if self.data_suffix in name and not self.mask_suffix in name and not self.border_suffix in name]
+
+    def _load_file(self, path, dtype=np.float32):
+        return np.array(Image.open(path), dtype)
+
+    def _cylce_file(self):
+        self.file_idx += 1
+        if self.file_idx >= len(self.data_files):
+            self.file_idx = 0 
+            if self.shuffle_data:
+                np.random.shuffle(self.data_files)
+
+    def _next_data(self):
+        self._cylce_file()
+        image_name = self.data_files[self.file_idx]
+        label_name = image_name.replace(self.data_suffix, self.mask_suffix)
+        border_name = image_name.replace(self.data_suffix, self.border_suffix)
+        
+        img = self._load_file(image_name, np.float32)
+        label = self._load_file(label_name, np.bool)
+        border = self._load_file(border_name, np.uint8)
+    
+        return img, label, border

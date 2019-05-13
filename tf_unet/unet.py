@@ -194,7 +194,7 @@ class Unet(object):
 
         self.x = tf.placeholder("float", shape=[None, None, None, channels], name="x")
         self.y = tf.placeholder("float", shape=[None, None, None, n_class], name="y")
-        self.w = tf.placeholder("float", shape=[None, None, None, n_class], name="w")
+        self.w = tf.placeholder("float", shape=[None, None, None], name="w")
 
         self.keep_prob = tf.placeholder(tf.float32, name="dropout_probability")  # dropout (keep probability)
 
@@ -226,12 +226,13 @@ class Unet(object):
             flat_logits = tf.reshape(logits, [-1, self.n_class])
             flat_labels = tf.reshape(self.y, [-1, self.n_class])
 
-            print("flat labels are of type: ", type(flat_labels))
 
-#            weight_map_borders = find_boundaries(self.y[0,...,0])
-            gt_map = self.y[...,0]
-            print("############## ", type(gt_map), gt_map.get_shape())
-#            weight_map_borders = np.where(weight_map_borders==True, 5, 1)
+#            print("self.x,y,w have shapes ", self.x.get_shape(),
+#                                             self.y.get_shape(),
+#                                             self.w.get_shape())
+
+#            print("weighted_labels has shape", weighted_labels.get_shape())
+#            print("flat_labels has shape", flat_labels.get_shape())
 
             if cost_name == "cross_entropy":
                 class_weights = cost_kwargs.pop("class_weights", None)
@@ -240,6 +241,34 @@ class Unet(object):
                     class_weights = tf.constant(np.array(class_weights, dtype=np.float32))
 
                     weight_map = tf.multiply(flat_labels, class_weights)
+                    print("weight_map has shape ", weight_map.get_shape())
+                    weight_map = tf.reduce_sum(weight_map, axis=1)
+
+                    loss_map = tf.nn.softmax_cross_entropy_with_logits_v2(logits=flat_logits,
+                                                                          labels=flat_labels)
+                    print("loss_map has shape ", loss_map.get_shape())
+                    weighted_loss = tf.multiply(loss_map, weight_map)
+
+                    loss = tf.reduce_mean(weighted_loss)
+                
+                else:
+                    loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=flat_logits,
+                                                                                     labels=flat_labels))
+
+
+
+
+            elif cost_name == "my_cost":
+                class_weights = cost_kwargs.pop("class_weights", None)
+
+                weighted_labels = tf.reshape(self.w, [-1, self.n_class])
+
+                if class_weights is not None:
+
+#                    class_weights = tf.constant(np.array(class_weights, dtype=np.float32))
+#                    print("class weights are shaped as", class_weights.get_shape())
+
+                    weight_map = tf.multiply(flat_labels, weighted_labels)
                     weight_map = tf.reduce_sum(weight_map, axis=1)
 
                     loss_map = tf.nn.softmax_cross_entropy_with_logits_v2(logits=flat_logits,
@@ -251,6 +280,10 @@ class Unet(object):
                 else:
                     loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=flat_logits,
                                                                                      labels=flat_labels))
+                
+
+
+
 
 
             elif cost_name == "dice_coefficient":
