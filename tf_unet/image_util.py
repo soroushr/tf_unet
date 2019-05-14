@@ -55,11 +55,29 @@ class BaseDataProvider(object):
 
         return train_data.reshape(1, ny, nx, self.channels), labels.reshape(1, ny, nx, self.n_class),
     
+    def _load_data_and_label_and_weight(self):
+        data, label, weight = self._next_data()
+            
+        train_data = self._process_data(data)
+        labels = self._process_labels(label)
+        weights = self._process_labels(weight)
+
+        train_data, labels, weights = self._post_process(train_data, labels, weights)
+        
+        nx = train_data.shape[1]
+        ny = train_data.shape[0]
+
+        return train_data.reshape(1, ny, nx, self.channels), labels.reshape(1, ny, nx, self.n_class), weights.reshape(1, ny, nx, self.n_class)
+
     def _process_labels(self, label):
         if self.n_class == 2:
             nx = label.shape[1]
             ny = label.shape[0]
             labels = np.zeros((ny, nx, self.n_class), dtype=np.float32)
+
+            if label.dtype != 'bool':
+                label = label.astype(np.bool)
+
             labels[..., 1] = label
             labels[..., 0] = ~label
             return labels
@@ -76,31 +94,34 @@ class BaseDataProvider(object):
 
         return data
     
-    def _post_process(self, data, labels):
+    def _post_process(self, data, labels, weights):
         """
         Post processing hook that can be used for data augmentation
         
         :param data: the data array
         :param labels: the label array
         """
-        return data, labels
+        return data, labels, weights
     
     def __call__(self, n):
-        train_data, labels = self._load_data_and_label()
+        train_data, labels, weights = self._load_data_and_label_and_weight()
         nx = train_data.shape[1]
         ny = train_data.shape[2]
     
         X = np.zeros((n, nx, ny, self.channels))
         Y = np.zeros((n, nx, ny, self.n_class))
+        W = np.zeros((n, nx, ny, self.n_class))
     
         X[0] = train_data
         Y[0] = labels
+        W[0] = weights
         for i in range(1, n):
-            train_data, labels = self._load_data_and_label()
+            train_data, labels, weights = self._load_data_and_label_and_weight()
             X[i] = train_data
             Y[i] = labels
-    
-        return X, Y
+            W[i] = weights
+
+        return X, Y, W
 
 
 class SimpleDataProvider(BaseDataProvider):
@@ -202,7 +223,8 @@ class ImageDataProvider(BaseDataProvider):
 
 
 ###############################
-class ImageDataProvider2(BaseDataProvider):
+# FIXME: fix the "border" vs. "weight" variable names - they're the same
+class ImageDataProviderWithWeights(BaseDataProvider):
     """
     make it load the borders too!
     """
@@ -211,7 +233,7 @@ class ImageDataProvider2(BaseDataProvider):
                                                             mask_suffix="_mask.png",
                                                             border_suffix="_border.png",
                                                             shuffle_data=True):
-        super(ImageDataProvider2, self).__init__(a_min, a_max)
+        super(ImageDataProviderWithWeights, self).__init__(a_min, a_max)
         self.data_suffix = data_suffix
         self.mask_suffix = mask_suffix
         self.border_suffix = border_suffix
@@ -260,6 +282,6 @@ class ImageDataProvider2(BaseDataProvider):
         
         img = self._load_file(image_name, np.float32)
         label = self._load_file(label_name, np.bool)
-        border = self._load_file(border_name, np.uint8)
-    
+        border = self._load_file(border_name, np.float32)
+
         return img, label, border

@@ -194,7 +194,7 @@ class Unet(object):
 
         self.x = tf.placeholder("float", shape=[None, None, None, channels], name="x")
         self.y = tf.placeholder("float", shape=[None, None, None, n_class], name="y")
-        self.w = tf.placeholder("float", shape=[None, None, None], name="w")
+        self.w = tf.placeholder("float", shape=[None, None, None, n_class], name="w")
 
         self.keep_prob = tf.placeholder(tf.float32, name="dropout_probability")  # dropout (keep probability)
 
@@ -227,13 +227,6 @@ class Unet(object):
             flat_labels = tf.reshape(self.y, [-1, self.n_class])
 
 
-#            print("self.x,y,w have shapes ", self.x.get_shape(),
-#                                             self.y.get_shape(),
-#                                             self.w.get_shape())
-
-#            print("weighted_labels has shape", weighted_labels.get_shape())
-#            print("flat_labels has shape", flat_labels.get_shape())
-
             if cost_name == "cross_entropy":
                 class_weights = cost_kwargs.pop("class_weights", None)
 
@@ -256,34 +249,24 @@ class Unet(object):
                                                                                      labels=flat_labels))
 
 
-
-
             elif cost_name == "my_cost":
                 class_weights = cost_kwargs.pop("class_weights", None)
 
                 weighted_labels = tf.reshape(self.w, [-1, self.n_class])
 
-                if class_weights is not None:
+                weight_map = tf.multiply(flat_labels, weighted_labels)
+                weight_map = tf.reduce_sum(weight_map, axis=1)
 
-#                    class_weights = tf.constant(np.array(class_weights, dtype=np.float32))
-#                    print("class weights are shaped as", class_weights.get_shape())
+                loss_map = tf.nn.weighted_cross_entropy_with_logits(logits=flat_logits,
+                                                                    targets=flat_labels,
+                                                                    pos_weight= tf.constant(1.0) 
+                                                                    )
 
-                    weight_map = tf.multiply(flat_labels, weighted_labels)
-                    weight_map = tf.reduce_sum(weight_map, axis=1)
+#                loss_map = tf.nn.softmax_cross_entropy_with_logits_v2(logits=flat_logits,
+#                                                                      labels=flat_labels)
+                weighted_loss = tf.multiply(tf.reduce_mean(loss_map), weight_map)
 
-                    loss_map = tf.nn.softmax_cross_entropy_with_logits_v2(logits=flat_logits,
-                                                                          labels=flat_labels)
-                    weighted_loss = tf.multiply(loss_map, weight_map)
-
-                    loss = tf.reduce_mean(weighted_loss)
-                
-                else:
-                    loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=flat_logits,
-                                                                                     labels=flat_labels))
-                
-
-
-
+                loss = tf.reduce_mean(weighted_loss)
 
 
             elif cost_name == "dice_coefficient":
@@ -468,8 +451,8 @@ class Trainer(object):
                 if ckpt and ckpt.model_checkpoint_path:
                     self.net.restore(sess, ckpt.model_checkpoint_path)
 
-            test_x, test_y = test_data_provider(self.validation_batch_size)
-            pred_shape = self.store_prediction(sess, test_x, test_y, "_init")
+            test_x, test_y, test_w = test_data_provider(self.validation_batch_size)
+            pred_shape = self.store_prediction(sess, test_x, test_y, test_w, "_init")
 
             summary_writer = tf.summary.FileWriter(output_path, graph=sess.graph)
             test_writer = tf.summary.FileWriter(output_path, graph=sess.graph) # SRB
@@ -482,13 +465,14 @@ class Trainer(object):
                 total_loss = 0
                 val_total_loss = 0
                 for step in range((epoch * training_iters), ((epoch + 1) * training_iters)):
-                    batch_x, batch_y = train_data_provider(self.batch_size)
+                    batch_x, batch_y, batch_w = train_data_provider(self.batch_size)
 
                     # Run optimization op (backprop)
                     _, loss, lr, gradients = sess.run(
                         (self.optimizer, self.net.cost, self.learning_rate_node, self.net.gradients_node),
                         feed_dict={self.net.x: batch_x,
                                    self.net.y: util.crop_to_shape(batch_y, pred_shape),
+                                   self.net.w: util.crop_to_shape(batch_w, pred_shape),
                                    self.net.keep_prob: dropout})
 
                     if self.net.summaries and self.norm_grads:
@@ -498,10 +482,12 @@ class Trainer(object):
 
                     if step % display_step == 0:
                         self.output_minibatch_stats(sess, summary_writer, step, batch_x,
-                                                    util.crop_to_shape(batch_y, pred_shape))
+                                                    util.crop_to_shape(batch_y, pred_shape),
+                                                    util.crop_to_shape(batch_w, pred_shape))
 
                         val_loss, val_acc, val_err = self.return_minibatch_stats(sess, test_writer, step, test_x,
-                                                                                 util.crop_to_shape(test_y, pred_shape)) # SRB
+                                                                                 util.crop_to_shape(test_y, pred_shape),
+                                                                                 util.crop_to_shape(test_w, pred_shape)) # SRB
 
                     total_loss += loss
                     val_total_loss += val_loss
@@ -509,7 +495,7 @@ class Trainer(object):
                 val_loss_list.append(val_total_loss)
                 
                 self.output_epoch_stats(epoch, total_loss, training_iters, lr)
-                self.store_prediction(sess, test_x, test_y, "epoch_%s" % epoch)
+                self.store_prediction(sess, test_x, test_y, test_w, "epoch_%s" % epoch)
 
                 save_path = self.net.save(sess, save_path)
 
@@ -518,7 +504,7 @@ class Trainer(object):
 
             return save_path
 
-    def store_prediction(self, sess, batch_x, batch_y, name):
+    def store_prediction(self, sess, batch_x, batch_y, batch_w, name):
         prediction = sess.run(self.net.predictor, feed_dict={self.net.x: batch_x,
                                                              self.net.y: batch_y,
                                                              self.net.keep_prob: 1.})
@@ -526,6 +512,7 @@ class Trainer(object):
 
         loss = sess.run(self.net.cost, feed_dict={self.net.x: batch_x,
                                                   self.net.y: util.crop_to_shape(batch_y, pred_shape),
+                                                  self.net.w: util.crop_to_shape(batch_w, pred_shape),
                                                   self.net.keep_prob: 1.})
 
         logging.info("Validation error= {:.1f}%, loss= {:.4f}".format(error_rate(prediction,
@@ -542,15 +529,16 @@ class Trainer(object):
         logging.info(
             "Epoch {:}, Average loss: {:.4f}, learning rate: {:.4f}".format(epoch, (total_loss / training_iters), lr))
 
-    def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y):
+    def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y, batch_w):
         # Calculate batch loss and accuracy
         summary_str, loss, acc, predictions = sess.run([self.summary_op,
                                                         self.net.cost,
                                                         self.net.accuracy,
                                                         self.net.predictor],
-                                                       feed_dict={self.net.x: batch_x,
-                                                                  self.net.y: batch_y,
-                                                                  self.net.keep_prob: 1.})
+                                                        feed_dict={self.net.x: batch_x,
+                                                                   self.net.y: batch_y,
+                                                                   self.net.w: batch_w,
+                                                                   self.net.keep_prob: 1.})
 
         summary_writer.add_summary(summary_str, step)
         summary_writer.flush()
@@ -562,7 +550,7 @@ class Trainer(object):
                                                                                                                predictions,
                                                                                                                batch_y)))
 
-    def return_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y):
+    def return_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y, batch_w):
         # Calculate batch loss and accuracy
         summary_str, loss, acc, predictions = sess.run([self.summary_op,
                                                         self.net.cost,
@@ -570,6 +558,7 @@ class Trainer(object):
                                                         self.net.predictor],
                                                        feed_dict={self.net.x: batch_x,
                                                                   self.net.y: batch_y,
+                                                                  self.net.w: batch_w,
                                                                   self.net.keep_prob: 1.})
 
 #        summary_writer.add_summary(summary_str, step)
