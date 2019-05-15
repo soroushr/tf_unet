@@ -60,14 +60,14 @@ class BaseDataProvider(object):
             
         train_data = self._process_data(data)
         labels = self._process_labels(label)
-        weights = self._process_labels(weight)
+        weights = self._process_weights(weight)
 
         train_data, labels, weights = self._post_process(train_data, labels, weights)
         
         nx = train_data.shape[1]
         ny = train_data.shape[0]
 
-        return train_data.reshape(1, ny, nx, self.channels), labels.reshape(1, ny, nx, self.n_class), weights.reshape(1, ny, nx, self.n_class)
+        return train_data.reshape(1, ny, nx, self.channels), labels.reshape(1, ny, nx, self.n_class), weights.reshape(1, ny, nx, 1)
 
     def _process_labels(self, label):
         if self.n_class == 2:
@@ -84,6 +84,13 @@ class BaseDataProvider(object):
         
         return label
     
+    def _process_weights(self, weight):
+        nx = weight.shape[1]
+        ny = weight.shape[0]
+        weights = np.zeros((ny, nx, 1), dtype=np.float32)
+        weights[:, :, 0] = weight
+        return weights
+
     def _process_data(self, data):
         # normalization
         data = np.clip(np.fabs(data), self.a_min, self.a_max)

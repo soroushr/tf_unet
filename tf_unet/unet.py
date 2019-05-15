@@ -194,7 +194,7 @@ class Unet(object):
 
         self.x = tf.placeholder("float", shape=[None, None, None, channels], name="x")
         self.y = tf.placeholder("float", shape=[None, None, None, n_class], name="y")
-        self.w = tf.placeholder("float", shape=[None, None, None, n_class], name="w")
+        self.w = tf.placeholder("float", shape=[None, None, None, 1], name="w")
 
         self.keep_prob = tf.placeholder(tf.float32, name="dropout_probability")  # dropout (keep probability)
 
@@ -252,19 +252,18 @@ class Unet(object):
             elif cost_name == "my_cost":
                 class_weights = cost_kwargs.pop("class_weights", None)
 
-                weighted_labels = tf.reshape(self.w, [-1, self.n_class])
+                weighted_labels = tf.reshape(self.w, [-1, 1])
 
-                weight_map = tf.multiply(flat_labels, weighted_labels)
-                weight_map = tf.reduce_sum(weight_map, axis=1)
+#                weight_map = tf.multiply(flat_labels, weighted_labels)
+#                weight_map = tf.reduce_sum(weight_map, axis=1)
 
-                loss_map = tf.nn.weighted_cross_entropy_with_logits(logits=flat_logits,
-                                                                    targets=flat_labels,
-                                                                    pos_weight= tf.constant(1.0) 
-                                                                    )
+#                loss_map = tf.nn.cross_entropy_with_logits(logits=flat_logits,
+#                                                           targets=flat_labels)
+                
+                loss_map = tf.nn.softmax_cross_entropy_with_logits_v2(logits=flat_logits,
+                                                                      labels=flat_labels)
 
-#                loss_map = tf.nn.softmax_cross_entropy_with_logits_v2(logits=flat_logits,
-#                                                                      labels=flat_labels)
-                weighted_loss = tf.multiply(tf.reduce_mean(loss_map), weight_map)
+                weighted_loss = tf.multiply(loss_map, weighted_labels)
 
                 loss = tf.reduce_mean(weighted_loss)
 
