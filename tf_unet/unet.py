@@ -234,12 +234,14 @@ class Unet(object):
                     class_weights = tf.constant(np.array(class_weights, dtype=np.float32))
 
                     weight_map = tf.multiply(flat_labels, class_weights)
-                    print("weight_map has shape ", weight_map.get_shape())
+                    print("@@@@@@@@ shape of weigt_map is {}".format(weight_map.get_shape()) )
+
                     weight_map = tf.reduce_sum(weight_map, axis=1)
 
                     loss_map = tf.nn.softmax_cross_entropy_with_logits_v2(logits=flat_logits,
                                                                           labels=flat_labels)
-                    print("loss_map has shape ", loss_map.get_shape())
+
+                    print("@@@@@@@@ shape of loss_map is {}".format(loss_map.get_shape()) )
                     weighted_loss = tf.multiply(loss_map, weight_map)
 
                     loss = tf.reduce_mean(weighted_loss)
@@ -253,6 +255,9 @@ class Unet(object):
                 class_weights = cost_kwargs.pop("class_weights", None)
 
                 weighted_labels = tf.reshape(self.w, [-1, 1])
+                weighted_labels = tf.reduce_sum(weighted_labels, axis=1)
+
+                print("@@@@@@@@ shape of weigted_labels is {}".format(weighted_labels.get_shape()) )
 
 #                weight_map = tf.multiply(flat_labels, weighted_labels)
 #                weight_map = tf.reduce_sum(weight_map, axis=1)
@@ -263,9 +268,11 @@ class Unet(object):
                 loss_map = tf.nn.softmax_cross_entropy_with_logits_v2(logits=flat_logits,
                                                                       labels=flat_labels)
 
+                print("@@@@@@@@ shape of loss_map is {}".format(loss_map.get_shape()) )
+
                 weighted_loss = tf.multiply(loss_map, weighted_labels)
 
-                loss = tf.reduce_mean(weighted_loss)
+                loss = tf.reduce_mean(weighted_loss)#, axis=0) # FIXME: check
 
 
             elif cost_name == "dice_coefficient":
@@ -465,7 +472,6 @@ class Trainer(object):
                 val_total_loss = 0
                 for step in range((epoch * training_iters), ((epoch + 1) * training_iters)):
                     batch_x, batch_y, batch_w = train_data_provider(self.batch_size)
-
                     # Run optimization op (backprop)
                     _, loss, lr, gradients = sess.run(
                         (self.optimizer, self.net.cost, self.learning_rate_node, self.net.gradients_node),
@@ -506,9 +512,10 @@ class Trainer(object):
     def store_prediction(self, sess, batch_x, batch_y, batch_w, name):
         prediction = sess.run(self.net.predictor, feed_dict={self.net.x: batch_x,
                                                              self.net.y: batch_y,
+#                                                             self.net.w: batch_w,
                                                              self.net.keep_prob: 1.})
         pred_shape = prediction.shape
-
+        """
         loss = sess.run(self.net.cost, feed_dict={self.net.x: batch_x,
                                                   self.net.y: util.crop_to_shape(batch_y, pred_shape),
                                                   self.net.w: util.crop_to_shape(batch_w, pred_shape),
@@ -518,7 +525,7 @@ class Trainer(object):
                                                                                    util.crop_to_shape(batch_y,
                                                                                                       prediction.shape)),
                                                                         loss))
-
+        """
         img = util.combine_img_prediction(batch_x, batch_y, prediction)
         util.save_image(img, "%s/%s.jpg" % (self.prediction_path, name))
 

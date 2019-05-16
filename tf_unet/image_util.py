@@ -81,7 +81,7 @@ class BaseDataProvider(object):
             labels[..., 1] = label
             labels[..., 0] = ~label
             return labels
-        
+
         return label
     
     def _process_weights(self, weight):
@@ -89,6 +89,7 @@ class BaseDataProvider(object):
         ny = weight.shape[0]
         weights = np.zeros((ny, nx, 1), dtype=np.float32)
         weights[:, :, 0] = weight
+
         return weights
 
     def _process_data(self, data):
@@ -117,7 +118,8 @@ class BaseDataProvider(object):
     
         X = np.zeros((n, nx, ny, self.channels))
         Y = np.zeros((n, nx, ny, self.n_class))
-        W = np.zeros((n, nx, ny, self.n_class))
+#        W = np.zeros((n, nx, ny, self.n_class))
+        W = np.zeros((n, nx, ny, 1))
     
         X[0] = train_data
         Y[0] = labels

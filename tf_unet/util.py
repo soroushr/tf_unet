@@ -99,6 +99,7 @@ def crop_to_shape(data, shape):
 
     assert cropped.shape[1] == shape[1]
     assert cropped.shape[2] == shape[2]
+
     return cropped
 
 def combine_img_prediction(data, gt, pred):
